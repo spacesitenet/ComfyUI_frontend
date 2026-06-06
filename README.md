@@ -24,7 +24,7 @@
 [website-shield]: https://img.shields.io/badge/ComfyOrg-4285F4?style=flat
 [website-url]: https://www.comfy.org/
 [discord-shield]: https://img.shields.io/discord/1218270712402415686?style=flat&logo=discord&logoColor=white&label=Discord
-[discord-url]: https://www.comfy.org/discord
+[discord-url]: https://discord.com/invite/comfyorg
 
 </div>
 

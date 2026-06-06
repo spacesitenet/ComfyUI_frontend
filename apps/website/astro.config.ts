@@ -3,6 +3,8 @@ import sitemap from '@astrojs/sitemap'
 import vue from '@astrojs/vue'
 import tailwindcss from '@tailwindcss/vite'
 
+import { externalLinks } from './src/config/routes'
+
 const LOCALES = ['en', 'zh-CN'] as const
 const DEFAULT_LOCALE = 'en'
 const PAYMENT_STATUSES = ['success', 'failed'] as const
@@ -29,6 +31,7 @@ export default defineConfig({
       '/customers/moment-factory/',
     '/cloud/enterprise-case-studies/how-series-entertainment-rebuilt-game-and-video-production-with-comfyui':
       '/customers/series-entertainment/',
+    '/discord': externalLinks.discord,
     '/zh-CN/terms-of-service': '/terms-of-service'
   },
   build: {
