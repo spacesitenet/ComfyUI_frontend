@@ -2,9 +2,16 @@ import { createTestingPinia } from '@pinia/testing'
 import { setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { LGraphNode } from '@/lib/litegraph/src/litegraph'
+import {
+  LGraphNode,
+  applyWidgetValuesFromSerialized
+} from '@/lib/litegraph/src/litegraph'
+import type { TWidgetValue } from '@/lib/litegraph/src/litegraph'
 import type { ISerialisedNode } from '@/lib/litegraph/src/types/serialisation'
-import { sortWidgetValuesByInputOrder } from '@/workbench/utils/nodeDefOrderingUtil'
+import {
+  applyWidgetValuesByDefinitionOrder,
+  sortWidgetValuesByInputOrder
+} from '@/workbench/utils/nodeDefOrderingUtil'
 
 describe('LGraphNode widget ordering', () => {
   let node: LGraphNode
@@ -88,7 +95,8 @@ describe('LGraphNode widget ordering', () => {
         flags: {},
         order: 0,
         mode: 0,
-        widgets_values: [30, 12345] // Only serializable widgets
+        // Sparse indices matching serialize(): gap at index 1 (serialize: false)
+        widgets_values: [30, null, 12345] as TWidgetValue[]
       }
 
       node.configure(info)
@@ -97,6 +105,136 @@ describe('LGraphNode widget ordering', () => {
       expect(node.widgets![1].value).toBe('Click') // button unchanged
       expect(node.widgets![2].value).toBe(12345) // seed
     })
+
+    it('should round-trip widgets_values when a serialize:false widget creates an index gap', () => {
+      // Mimics TextEncodeAceStepAudio1_5: seed + control_after_generate (serialize: false)
+      // + combo widgets such as timesignature and language.
+      node.addWidget('number', 'seed', 0, null, {})
+      node.addWidget('combo', 'control_after_generate', 'randomize', null, {
+        values: ['fixed', 'increment', 'decrement', 'randomize']
+      })
+      node.widgets![1].serialize = false
+      node.addWidget('combo', 'timesignature', '2', null, {
+        values: ['2', '3', '4', '6']
+      })
+      node.addWidget('combo', 'language', 'en', null, {
+        values: ['en', 'de', 'fr']
+      })
+
+      node.widgets![2].value = '4'
+      node.widgets![3].value = 'de'
+
+      node.serialize_widgets = true
+      const serialized = node.serialize()
+
+      const reloaded = new LGraphNode('TestNode')
+      reloaded.addWidget('number', 'seed', 0, null, {})
+      reloaded.addWidget('combo', 'control_after_generate', 'randomize', null, {
+        values: ['fixed', 'increment', 'decrement', 'randomize']
+      })
+      reloaded.widgets![1].serialize = false
+      reloaded.addWidget('combo', 'timesignature', '2', null, {
+        values: ['2', '3', '4', '6']
+      })
+      reloaded.addWidget('combo', 'language', 'en', null, {
+        values: ['en', 'de', 'fr']
+      })
+      reloaded.configure(serialized)
+
+      expect(reloaded.widgets![0].value).toBe(0)
+      expect(reloaded.widgets![1].value).toBe('randomize')
+      expect(reloaded.widgets![2].value).toBe('4')
+      expect(reloaded.widgets![3].value).toBe('de')
+    })
+
+    it('restores ACE Step template values when timesignature and language widgets are swapped', () => {
+      const definitionOrder = [
+        'tags',
+        'lyrics',
+        'seed',
+        'control_after_generate',
+        'bpm',
+        'duration',
+        'timesignature',
+        'language',
+        'keyscale'
+      ]
+      const templateValues = [
+        'Neo-Soul tags',
+        'Lyrics',
+        31,
+        'fixed',
+        190,
+        120,
+        '4',
+        'en',
+        'E minor'
+      ]
+
+      node.addWidget('text', 'tags', '', null, {})
+      node.addWidget('text', 'lyrics', '', null, {})
+      node.addWidget('number', 'seed', 0, null, {})
+      node.addWidget('combo', 'control_after_generate', 'randomize', null, {
+        values: ['fixed', 'randomize']
+      })
+      node.widgets![3].serialize = false
+      node.addWidget('number', 'bpm', 120, null, {})
+      node.addWidget('number', 'duration', 120, null, {})
+      node.addWidget('combo', 'language', 'en', null, { values: ['en', 'de'] })
+      node.addWidget('combo', 'timesignature', '2', null, {
+        values: ['2', '3', '4', '6']
+      })
+      node.addWidget('combo', 'keyscale', 'C major', null, {
+        values: ['C major', 'E minor']
+      })
+
+      applyWidgetValuesByDefinitionOrder(
+        node.widgets!,
+        templateValues,
+        definitionOrder
+      )
+
+      expect(node.widgets!.find((w) => w.name === 'timesignature')!.value).toBe(
+        '4'
+      )
+      expect(node.widgets!.find((w) => w.name === 'language')!.value).toBe('en')
+    })
+  })
+})
+
+describe('applyWidgetValuesFromSerialized', () => {
+  it('uses widget index mapping for sparse widgets_values arrays', () => {
+    const node = new LGraphNode('TestNode')
+    node.addWidget('combo', 'timesignature', '2', null, {
+      values: ['2', '3', '4', '6']
+    })
+    node.addWidget('combo', 'control_after_generate', 'randomize', null, {
+      values: ['fixed', 'randomize']
+    })
+    node.widgets![1].serialize = false
+    node.addWidget('combo', 'language', 'en', null, { values: ['en', 'de'] })
+
+    applyWidgetValuesFromSerialized(node.widgets!, [
+      '4',
+      null,
+      'de'
+    ] as TWidgetValue[])
+
+    expect(node.widgets![0].value).toBe('4')
+    expect(node.widgets![1].value).toBe('randomize')
+    expect(node.widgets![2].value).toBe('de')
+  })
+
+  it('uses dense mapping for legacy compact widgets_values arrays', () => {
+    const node = new LGraphNode('TestNode')
+    node.addWidget('number', 'non-serializable', 1, null, {})
+    node.widgets![0].serialize = false
+    node.addWidget('number', 'serializable', 2, null, {})
+
+    applyWidgetValuesFromSerialized(node.widgets!, [100])
+
+    expect(node.widgets![0].value).toBe(1)
+    expect(node.widgets![1].value).toBe(100)
   })
 })
 

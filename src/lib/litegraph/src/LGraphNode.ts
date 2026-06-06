@@ -220,6 +220,42 @@ supported callbacks:
     + getExtraMenuOptions: to add option to context menu
 */
 
+/**
+ * Applies serialized widget values to a node's widgets.
+ *
+ * {@link LGraphNode.serialize} stores values at each widget's array index, leaving
+ * gaps (null/undefined) for widgets with `serialize: false` (e.g. seed
+ * control_after_generate). Legacy workflows may use a dense array containing only
+ * serializable values in order — detected when array length equals serializable count.
+ */
+export function applyWidgetValuesFromSerialized(
+  widgets: IBaseWidget[],
+  values: TWidgetValue[]
+): void {
+  const serializableCount = widgets.filter(
+    (widget) => widget.serialize !== false
+  ).length
+
+  const useWidgetIndexMapping = values.length !== serializableCount
+
+  if (useWidgetIndexMapping) {
+    for (const [index, widget] of widgets.entries()) {
+      if (widget.serialize === false) continue
+      if (index >= values.length) break
+      const value = values[index]
+      if (value !== undefined) widget.value = value
+    }
+    return
+  }
+
+  let valueIndex = 0
+  for (const widget of widgets) {
+    if (widget.serialize === false) continue
+    if (valueIndex >= values.length) break
+    widget.value = values[valueIndex++]
+  }
+}
+
 export interface LGraphNode {
   constructor: LGraphNodeConstructor
 }
@@ -917,12 +953,7 @@ export class LGraphNode
       }
 
       if (info.widgets_values) {
-        let i = 0
-        for (const widget of this.widgets ?? []) {
-          if (widget.serialize === false) continue
-          if (i >= info.widgets_values.length) break
-          widget.value = info.widgets_values[i++]
-        }
+        applyWidgetValuesFromSerialized(this.widgets ?? [], info.widgets_values)
       }
     }
 

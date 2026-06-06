@@ -142,6 +142,8 @@ export function addValueControlWidgets(
     }
   ) as IComboWidget
 
+  // Workflow persistence (widget.serialize), distinct from options.serialize (API prompt).
+  valueControl.serialize = false
   valueControl.tooltip =
     'Allows the linked widget to be changed automatically, for example randomizing the noise seed.'
   valueControl[IS_CONTROL_WIDGET] = true
@@ -167,6 +169,7 @@ export function addValueControlWidgets(
         serialize: false // Don't include this in prompt.
       }
     ) as IStringWidget
+    comboFilter.serialize = false
     updateControlWidgetLabel(comboFilter)
     comboFilter.tooltip =
       "Allows for filtering the list of values when changing the value via the control generate mode. Allows for RegEx matches in the format /abc/ to only filter to values containing 'abc'."

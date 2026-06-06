@@ -1,6 +1,104 @@
+import { isEqual } from 'es-toolkit/compat'
+
 import type { TWidgetValue } from '@/lib/litegraph/src/litegraph'
+import type { IBaseWidget } from '@/lib/litegraph/src/types/widgets'
 import type { InputSpec } from '@/schemas/nodeDef/nodeDefSchemaV2'
 import type { ComfyNodeDefImpl } from '@/stores/nodeDefStore'
+
+function resolveControlWidgetName(inputSpec: InputSpec): string {
+  if (typeof inputSpec.control_after_generate === 'string') {
+    return inputSpec.control_after_generate
+  }
+  return 'control_after_generate'
+}
+
+/**
+ * Stable widget order from the node definition (V1 required/optional declaration
+ * order). This matches how workflows and templates index `widgets_values`, and
+ * is intentionally independent of `input_order` used for widget creation.
+ */
+export function getWidgetDefinitionOrder(
+  nodeDefImpl: ComfyNodeDefImpl,
+  inputIsWidget: (spec: InputSpec) => boolean
+): string[] {
+  const names: string[] = []
+
+  const appendWidgetNames = (inputNames: string[]) => {
+    for (const inputName of inputNames) {
+      const spec = nodeDefImpl.inputs[inputName]
+      if (!spec || spec.forceInput || !inputIsWidget(spec)) continue
+      names.push(spec.name)
+      if (spec.control_after_generate) {
+        names.push(resolveControlWidgetName(spec))
+      }
+    }
+  }
+
+  if (nodeDefImpl.input?.required) {
+    appendWidgetNames(Object.keys(nodeDefImpl.input.required))
+  }
+  if (nodeDefImpl.input?.optional) {
+    appendWidgetNames(Object.keys(nodeDefImpl.input.optional))
+  }
+
+  if (names.length > 0) return names
+
+  for (const spec of Object.values(nodeDefImpl.inputs)) {
+    if (spec.forceInput || !inputIsWidget(spec)) continue
+    names.push(spec.name)
+    if (spec.control_after_generate) {
+      names.push(resolveControlWidgetName(spec))
+    }
+  }
+
+  return names
+}
+
+/**
+ * Applies workflow `widgets_values` to node widgets by matching definition order
+ * to widget names, so values stay correct even when widget creation order differs.
+ */
+export function applyWidgetValuesByDefinitionOrder(
+  widgets: IBaseWidget[],
+  values: TWidgetValue[],
+  definitionOrder: string[]
+): void {
+  const valueByName = new Map<string, TWidgetValue>()
+  definitionOrder.forEach((name, index) => {
+    if (index < values.length && values[index] !== undefined) {
+      valueByName.set(name, values[index]!)
+    }
+  })
+
+  for (const widget of widgets) {
+    if (widget.serialize === false) continue
+    if (!valueByName.has(widget.name)) continue
+    widget.value = valueByName.get(widget.name)!
+  }
+}
+
+/**
+ * Reindexes `widgets_values` from serialization order onto the node's current
+ * widget order (when they differ, e.g. after input_order changes).
+ */
+export function alignWidgetValuesToNodeOrder(
+  widgetValues: TWidgetValue[],
+  serializationOrder: string[],
+  nodeWidgetOrder: string[]
+): TWidgetValue[] {
+  if (
+    serializationOrder.length === 0 ||
+    isEqual(serializationOrder, nodeWidgetOrder)
+  ) {
+    return widgetValues
+  }
+
+  return sortWidgetValuesByInputOrder(
+    widgetValues,
+    serializationOrder,
+    nodeWidgetOrder
+  )
+}
 
 /**
  * Gets an ordered array of InputSpec objects based on input_order.
