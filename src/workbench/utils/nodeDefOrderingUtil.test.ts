@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+import type { IBaseWidget } from '@/lib/litegraph/src/types/widgets'
 import type { ComfyNodeDef } from '@/schemas/nodeDefSchema'
 import { ComfyNodeDefImpl } from '@/stores/nodeDefStore'
 import {
+  applyWidgetValuesByDefinitionOrder,
   getOrderedInputSpecs,
+  getWidgetDefinitionOrder,
   sortWidgetValuesByInputOrder
 } from '@/workbench/utils/nodeDefOrderingUtil'
 
@@ -269,6 +272,103 @@ describe('nodeDefOrderingUtil', () => {
       )
 
       expect(result).toEqual([1, 2, 3])
+    })
+  })
+
+  describe('getWidgetDefinitionOrder', () => {
+    it('includes control_after_generate after seed for ACE Step-style nodes', () => {
+      const nodeDef: ComfyNodeDef = {
+        name: 'TextEncodeAceStepAudio1_5',
+        display_name: 'TextEncodeAceStepAudio1.5',
+        category: 'model/conditioning',
+        python_module: 'comfy_extras.nodes_ace',
+        description: '',
+        output_node: false,
+        input: {
+          required: {
+            clip: ['CLIP', {}],
+            tags: ['STRING', { multiline: true }],
+            lyrics: ['STRING', { multiline: true }],
+            seed: ['INT', { default: 0, control_after_generate: true }],
+            bpm: ['INT', { default: 120 }],
+            duration: ['FLOAT', { default: 120.0 }],
+            timesignature: ['COMBO', { options: ['2', '3', '4', '6'] }],
+            language: ['COMBO', { options: ['en', 'de'], default: 'en' }],
+            keyscale: ['COMBO', { options: ['C major'] }]
+          }
+        }
+      }
+
+      const nodeDefImpl = new ComfyNodeDefImpl(nodeDef)
+      const order = getWidgetDefinitionOrder(
+        nodeDefImpl,
+        (spec) => spec.type !== 'CLIP'
+      )
+
+      expect(order).toEqual([
+        'tags',
+        'lyrics',
+        'seed',
+        'control_after_generate',
+        'bpm',
+        'duration',
+        'timesignature',
+        'language',
+        'keyscale'
+      ])
+    })
+  })
+
+  describe('applyWidgetValuesByDefinitionOrder', () => {
+    it('restores ACE Step template values when widget creation order differs from definition order', () => {
+      const definitionOrder = [
+        'tags',
+        'lyrics',
+        'seed',
+        'control_after_generate',
+        'bpm',
+        'duration',
+        'timesignature',
+        'language',
+        'keyscale'
+      ]
+      const templateValues = [
+        'Neo-Soul tags',
+        'Lyrics',
+        31,
+        'fixed',
+        190,
+        120,
+        '4',
+        'en',
+        'E minor'
+      ]
+
+      const widgets: Pick<IBaseWidget, 'name' | 'serialize' | 'value'>[] = [
+        { name: 'tags', serialize: true, value: '' },
+        { name: 'lyrics', serialize: true, value: '' },
+        { name: 'seed', serialize: true, value: 0 },
+        {
+          name: 'control_after_generate',
+          serialize: false,
+          value: 'randomize'
+        },
+        { name: 'bpm', serialize: true, value: 120 },
+        { name: 'duration', serialize: true, value: 120 },
+        // Widgets created in swapped order (e.g. via input_order)
+        { name: 'language', serialize: true, value: 'en' },
+        { name: 'timesignature', serialize: true, value: '2' },
+        { name: 'keyscale', serialize: true, value: 'C major' }
+      ]
+
+      applyWidgetValuesByDefinitionOrder(
+        widgets as IBaseWidget[],
+        templateValues,
+        definitionOrder
+      )
+
+      expect(widgets.find((w) => w.name === 'timesignature')!.value).toBe('4')
+      expect(widgets.find((w) => w.name === 'language')!.value).toBe('en')
     })
   })
 })
