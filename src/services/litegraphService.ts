@@ -70,7 +70,11 @@ import {
   isVideoOutput,
   migrateWidgetsValues
 } from '@/utils/litegraphUtil'
-import { getOrderedInputSpecs } from '@/workbench/utils/nodeDefOrderingUtil'
+import {
+  applyWidgetValuesByDefinitionOrder,
+  getOrderedInputSpecs,
+  getWidgetDefinitionOrder
+} from '@/workbench/utils/nodeDefOrderingUtil'
 
 import { useExtensionService } from './extensionService'
 import { useMaskEditor } from '@/composables/maskeditor/useMaskEditor'
@@ -337,6 +341,30 @@ export const useLitegraphService = () => {
     for (const inputSpec of orderedInputSpecs) addInputWidget(node, inputSpec)
   }
 
+  function configureComfyNodeWidgetValues(
+    nodeDefImpl: ComfyNodeDefImpl,
+    node: LGraphNode,
+    data: ISerialisedNode,
+    configureBase: (payload: ISerialisedNode) => void
+  ): void {
+    const widgets = node.widgets ?? []
+    const rawValues = data.widgets_values
+
+    if (!rawValues?.length || !widgets.length) {
+      configureBase(data)
+      return
+    }
+
+    const widgetStore = useWidgetStore()
+    const values = migrateWidgetsValues(nodeDefImpl.inputs, widgets, rawValues)
+    const definitionOrder = getWidgetDefinitionOrder(nodeDefImpl, (spec) =>
+      widgetStore.inputIsWidget(spec)
+    )
+
+    configureBase({ ...data, widgets_values: undefined })
+    applyWidgetValuesByDefinitionOrder(widgets, values, definitionOrder)
+  }
+
   /**
    * @internal Add outputs to the node.
    */
@@ -486,13 +514,12 @@ export const useLitegraphService = () => {
           }
         )
 
-        data.widgets_values = migrateWidgetsValues(
-          ComfyNode.nodeData.inputs,
-          this.widgets ?? [],
-          data.widgets_values ?? []
+        configureComfyNodeWidgetValues(
+          ComfyNode.nodeData as ComfyNodeDefImpl,
+          this,
+          data,
+          (payload) => super.configure(payload)
         )
-
-        super.configure(data)
       }
     }
 
@@ -594,13 +621,12 @@ export const useLitegraphService = () => {
           }
         )
 
-        data.widgets_values = migrateWidgetsValues(
-          ComfyNode.nodeData.inputs,
-          this.widgets ?? [],
-          data.widgets_values ?? []
+        configureComfyNodeWidgetValues(
+          ComfyNode.nodeData as ComfyNodeDefImpl,
+          this,
+          data,
+          (payload) => super.configure(payload)
         )
-
-        super.configure(data)
       }
     }
 

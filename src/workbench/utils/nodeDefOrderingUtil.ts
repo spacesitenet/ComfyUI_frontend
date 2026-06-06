@@ -1,4 +1,5 @@
 import type { TWidgetValue } from '@/lib/litegraph/src/litegraph'
+import type { IBaseWidget } from '@/lib/litegraph/src/types/widgets'
 import type { InputSpec } from '@/schemas/nodeDef/nodeDefSchemaV2'
 import type { ComfyNodeDefImpl } from '@/stores/nodeDefStore'
 
@@ -105,4 +106,51 @@ export function sortWidgetValuesByInputOrder(
   }
 
   return reordered
+}
+
+function controlWidgetName(inputSpec: InputSpec): string {
+  return typeof inputSpec.control_after_generate === 'string'
+    ? inputSpec.control_after_generate
+    : 'control_after_generate'
+}
+
+/** Widget names in V1 definition order — how workflows index `widgets_values`. */
+export function getWidgetDefinitionOrder(
+  nodeDefImpl: ComfyNodeDefImpl,
+  inputIsWidget: (spec: InputSpec) => boolean
+): string[] {
+  const names: string[] = []
+
+  const append = (inputNames: string[]) => {
+    for (const inputName of inputNames) {
+      const spec = nodeDefImpl.inputs[inputName]
+      if (!spec || spec.forceInput || !inputIsWidget(spec)) continue
+      names.push(spec.name)
+      if (spec.control_after_generate) names.push(controlWidgetName(spec))
+    }
+  }
+
+  append(Object.keys(nodeDefImpl.input?.required ?? {}))
+  append(Object.keys(nodeDefImpl.input?.optional ?? {}))
+
+  return names
+}
+
+export function applyWidgetValuesByDefinitionOrder(
+  widgets: IBaseWidget[],
+  values: TWidgetValue[],
+  definitionOrder: string[]
+): void {
+  const valueByName = new Map<string, TWidgetValue>()
+  definitionOrder.forEach((name, index) => {
+    if (index < values.length && values[index] !== undefined) {
+      valueByName.set(name, values[index]!)
+    }
+  })
+
+  for (const widget of widgets) {
+    if (widget.serialize === false) continue
+    if (!valueByName.has(widget.name)) continue
+    widget.value = valueByName.get(widget.name)!
+  }
 }
